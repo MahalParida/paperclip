@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   agents,
@@ -414,6 +414,21 @@ describeEmbeddedPostgres("budgetService release gate enforcement", () => {
     return event!;
   }
 
+  async function waitForBlockedIncidentUpdates(count: number) {
+    for (let attempt = 0; attempt < 80; attempt += 1) {
+      const [row] = await db.execute<{ waiting: number }>(sql`
+        SELECT count(*)::int AS waiting
+        FROM pg_stat_activity
+        WHERE state = 'active'
+          AND wait_event_type = 'Lock'
+          AND query ILIKE '%update "budget_incidents"%'
+      `);
+      if ((row?.waiting ?? 0) >= count) return true;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    return false;
+  }
+
   it("raises one soft incident per window before hard-stopping and safely logging agent telemetry", async () => {
     const { companyId, agentId } = await createBudgetFixture();
     const cancelWorkForScope = vi.fn().mockResolvedValue(undefined);
@@ -723,9 +738,27 @@ describeEmbeddedPostgres("budgetService release gate enforcement", () => {
     const policy = { scopeType: "agent" as const, scopeId: agentId, amount: 100 };
     await service.upsertPolicy(companyId, policy, "board-user");
     await service.upsertPolicy(companyId, { ...policy, isActive: false }, "board-user");
+    const [resolvedIncident] = await db
+      .select()
+      .from(budgetIncidents)
+      .where(eq(budgetIncidents.thresholdType, "hard"));
 
-    await Promise.all(Array.from({ length: 5 }, () => db.select().from(agents)));
-    await Promise.all(Array.from({ length: 5 }, () => service.upsertPolicy(companyId, policy, "board-user")));
+    let markLocked!: () => void;
+    let releaseLock!: () => void;
+    const locked = new Promise<void>((resolve) => { markLocked = resolve; });
+    const lockHolder = db.transaction(async (tx) => {
+      await tx.select().from(budgetIncidents).where(eq(budgetIncidents.id, resolvedIncident!.id)).for("update");
+      markLocked();
+      await new Promise<void>((resolve) => { releaseLock = resolve; });
+    });
+    await locked;
+    const reactivations = Promise.all(
+      Array.from({ length: 5 }, () => service.upsertPolicy(companyId, policy, "board-user")),
+    );
+    const allBlocked = await waitForBlockedIncidentUpdates(5);
+    releaseLock();
+    await Promise.all([lockHolder, reactivations]);
+    expect(allBlocked).toBe(true);
 
     const [hardIncident] = await db
       .select()
