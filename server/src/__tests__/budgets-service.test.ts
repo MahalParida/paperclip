@@ -637,4 +637,53 @@ describeEmbeddedPostgres("budgetService release gate enforcement", () => {
     });
     expect(overviewAfterResume.activeIncidents).toHaveLength(0);
   });
+
+  it("does not pause an over-budget agent when saving an inactive policy", async () => {
+    const { companyId, agentId } = await createBudgetFixture();
+    const cancelWorkForScope = vi.fn().mockResolvedValue(undefined);
+    const service = budgetService(db, { cancelWorkForScope });
+    await insertCostEvent({ companyId, agentId, costCents: 150 });
+
+    await service.upsertPolicy(
+      companyId,
+      { scopeType: "agent", scopeId: agentId, amount: 100, isActive: false },
+      "board-user",
+    );
+
+    const [agent] = await db
+      .select({ status: agents.status, pauseReason: agents.pauseReason })
+      .from(agents);
+    expect(agent).toEqual({ status: "active", pauseReason: null });
+    expect(cancelWorkForScope).not.toHaveBeenCalled();
+    expect(await db.select().from(budgetIncidents)).toHaveLength(0);
+    expect(await service.getInvocationBlock(companyId, agentId)).toBeNull();
+  });
+
+  it("resumes a budget-paused agent and resolves its incidents when the policy is deactivated", async () => {
+    const { companyId, agentId } = await createBudgetFixture();
+    const cancelWorkForScope = vi.fn().mockResolvedValue(undefined);
+    const service = budgetService(db, { cancelWorkForScope });
+    await insertCostEvent({ companyId, agentId, costCents: 150 });
+    await service.upsertPolicy(companyId, { scopeType: "agent", scopeId: agentId, amount: 100 }, "board-user");
+
+    const [agentAfterHardStop] = await db
+      .select({ status: agents.status, pauseReason: agents.pauseReason })
+      .from(agents);
+    expect(agentAfterHardStop).toEqual({ status: "paused", pauseReason: "budget" });
+
+    await service.upsertPolicy(
+      companyId,
+      { scopeType: "agent", scopeId: agentId, amount: 100, isActive: false },
+      "board-user",
+    );
+
+    const [agentAfterDeactivate] = await db
+      .select({ status: agents.status, pauseReason: agents.pauseReason })
+      .from(agents);
+    expect(agentAfterDeactivate).toEqual({ status: "idle", pauseReason: null });
+    expect(cancelWorkForScope).toHaveBeenCalledTimes(1);
+    const incidentRows = await db.select().from(budgetIncidents);
+    expect(incidentRows.map((incident) => incident.status)).toEqual(["resolved", "resolved"]);
+    expect(await service.getInvocationBlock(companyId, agentId)).toBeNull();
+  });
 });

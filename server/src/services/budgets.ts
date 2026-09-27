@@ -588,7 +588,7 @@ export function budgetService(db: Db, hooks: BudgetServiceHooks = {}) {
           .where(eq(agents.id, input.scopeId));
       }
 
-      if (amount > 0) {
+      if (row.isActive) {
         const observedAmount = await computeObservedAmount(db, row);
         if (observedAmount < amount) {
           await resumeScopeFromBudget(row);
