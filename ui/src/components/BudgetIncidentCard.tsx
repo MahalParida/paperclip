@@ -30,11 +30,13 @@ export function BudgetIncidentCard({
   onRaiseAndResume,
   onKeepPaused,
   isMutating,
+  error,
 }: {
   incident: BudgetIncident;
   onRaiseAndResume: (amountCents: number) => void;
   onKeepPaused: () => void;
   isMutating?: boolean;
+  error?: string | null;
 }) {
   const [draftAmount, setDraftAmount] = useState(
     centsInputValue(Math.max(incident.amountObserved + 1000, incident.amountLimit)),
@@ -103,6 +105,12 @@ export function BudgetIncidentCard({
             </p>
           ) : null}
         </div>
+
+        {error ? (
+          <p role="alert" className="text-xs text-red-700 dark:text-red-200/80">
+            {error}
+          </p>
+        ) : null}
 
         <div className="flex justify-end">
           <Button variant="ghost" className="text-muted-foreground" disabled={isMutating} onClick={onKeepPaused}>
