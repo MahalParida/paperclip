@@ -100,14 +100,14 @@ export function BudgetIncidentCard({
             </Button>
           </div>
           {parsed !== null && parsed <= incident.amountObserved ? (
-            <p className="mt-2 text-xs text-red-700 dark:text-red-200/80">
+            <p className="mt-2 text-xs text-destructive">
               The new budget must exceed current observed spend.
             </p>
           ) : null}
         </div>
 
         {error ? (
-          <p role="alert" className="text-xs text-red-700 dark:text-red-200/80">
+          <p role="alert" className="text-xs text-destructive">
             {error}
           </p>
         ) : null}
