@@ -399,8 +399,8 @@ export function budgetService(db: Db, hooks: BudgetServiceHooks = {}) {
       windowEnd: end,
     });
 
-    const approval = thresholdType === "hard"
-      ? await db
+    const insertApproval = (executor: Db) =>
+      executor
         .insert(approvals)
         .values({
           companyId: policy.companyId,
@@ -411,25 +411,43 @@ export function budgetService(db: Db, hooks: BudgetServiceHooks = {}) {
           payload,
         })
         .returning()
-        .then((rows) => rows[0] ?? null)
-      : null;
+        .then((rows) => rows[0] ?? null);
 
     if (existing) {
-      const incident = await db
-        .update(budgetIncidents)
-        .set({
-          amountLimit: policy.amount,
-          amountObserved,
-          status: "open",
-          approvalId: approval?.id ?? null,
-          resolvedAt: null,
-          updatedAt: new Date(),
-        })
-        .where(eq(budgetIncidents.id, existing.id))
-        .returning()
-        .then((rows) => rows[0] ?? null);
-      return incident ? { incident, created: true } : null;
+      return db.transaction(async (tx) => {
+        const txDb = tx as unknown as Db;
+        const claimed = await txDb
+          .update(budgetIncidents)
+          .set({
+            amountLimit: policy.amount,
+            amountObserved,
+            status: "open",
+            resolvedAt: null,
+            updatedAt: new Date(),
+          })
+          .where(and(eq(budgetIncidents.id, existing.id), eq(budgetIncidents.status, "resolved")))
+          .returning()
+          .then((rows) => rows[0] ?? null);
+        if (!claimed) {
+          const current = await txDb
+            .select()
+            .from(budgetIncidents)
+            .where(eq(budgetIncidents.id, existing.id))
+            .then((rows) => rows[0] ?? null);
+          return current ? { incident: current, created: false } : null;
+        }
+        const approval = await insertApproval(txDb);
+        const incident = await txDb
+          .update(budgetIncidents)
+          .set({ approvalId: approval?.id ?? null })
+          .where(eq(budgetIncidents.id, claimed.id))
+          .returning()
+          .then((rows) => rows[0] ?? null);
+        return incident ? { incident, created: true } : null;
+      });
     }
+
+    const approval = thresholdType === "hard" ? await insertApproval(db) : null;
 
     const incident = await db
       .insert(budgetIncidents)

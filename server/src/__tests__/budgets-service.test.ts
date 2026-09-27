@@ -715,6 +715,29 @@ describeEmbeddedPostgres("budgetService release gate enforcement", () => {
     expect(approvalRows.find((approval) => approval.status === "pending")?.id).toBe(hardIncidents[0]!.approvalId);
   });
 
+  it("creates one pending approval when concurrent reactivations reopen the same hard incident", async () => {
+    const { companyId, agentId } = await createBudgetFixture();
+    const cancelWorkForScope = vi.fn().mockResolvedValue(undefined);
+    const service = budgetService(db, { cancelWorkForScope });
+    await insertCostEvent({ companyId, agentId, costCents: 150 });
+    const policy = { scopeType: "agent" as const, scopeId: agentId, amount: 100 };
+    await service.upsertPolicy(companyId, policy, "board-user");
+    await service.upsertPolicy(companyId, { ...policy, isActive: false }, "board-user");
+
+    await Promise.all(Array.from({ length: 5 }, () => db.select().from(agents)));
+    await Promise.all(Array.from({ length: 5 }, () => service.upsertPolicy(companyId, policy, "board-user")));
+
+    const [hardIncident] = await db
+      .select()
+      .from(budgetIncidents)
+      .where(eq(budgetIncidents.thresholdType, "hard"));
+    const pendingApprovals = await db
+      .select()
+      .from(approvals)
+      .where(eq(approvals.status, "pending"));
+    expect(pendingApprovals.map((approval) => approval.id)).toEqual([hardIncident!.approvalId]);
+  });
+
   it("keeps an agent paused when another active policy is still exceeded", async () => {
     const { companyId, agentId } = await createBudgetFixture();
     const cancelWorkForScope = vi.fn().mockResolvedValue(undefined);
