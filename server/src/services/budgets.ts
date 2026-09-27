@@ -258,7 +258,28 @@ export function budgetService(db: Db, hooks: BudgetServiceHooks = {}) {
     });
   }
 
+  async function hasOtherExceededHardStop(policy: PolicyRow) {
+    const siblings = await db
+      .select()
+      .from(budgetPolicies)
+      .where(
+        and(
+          eq(budgetPolicies.companyId, policy.companyId),
+          eq(budgetPolicies.scopeType, policy.scopeType),
+          eq(budgetPolicies.scopeId, policy.scopeId),
+          eq(budgetPolicies.isActive, true),
+          eq(budgetPolicies.hardStopEnabled, true),
+          ne(budgetPolicies.id, policy.id),
+        ),
+      );
+    for (const sibling of siblings) {
+      if (sibling.amount > 0 && (await computeObservedAmount(db, sibling)) >= sibling.amount) return true;
+    }
+    return false;
+  }
+
   async function resumeScopeFromBudget(policy: PolicyRow) {
+    if (await hasOtherExceededHardStop(policy)) return;
     const now = new Date();
     if (policy.scopeType === "agent") {
       await db
@@ -365,7 +386,8 @@ export function budgetService(db: Db, hooks: BudgetServiceHooks = {}) {
         ),
       )
       .then((rows) => rows[0] ?? null);
-    if (existing) return { incident: existing, created: false };
+    const reopen = existing?.status === "resolved" && thresholdType === "hard";
+    if (existing && !reopen) return { incident: existing, created: false };
 
     const scope = await resolveScopeRecord(db, policy.scopeType as BudgetScopeType, policy.scopeId);
     const payload = buildApprovalPayload({
@@ -391,6 +413,23 @@ export function budgetService(db: Db, hooks: BudgetServiceHooks = {}) {
         .returning()
         .then((rows) => rows[0] ?? null)
       : null;
+
+    if (existing) {
+      const incident = await db
+        .update(budgetIncidents)
+        .set({
+          amountLimit: policy.amount,
+          amountObserved,
+          status: "open",
+          approvalId: approval?.id ?? null,
+          resolvedAt: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(budgetIncidents.id, existing.id))
+        .returning()
+        .then((rows) => rows[0] ?? null);
+      return incident ? { incident, created: true } : null;
+    }
 
     const incident = await db
       .insert(budgetIncidents)
