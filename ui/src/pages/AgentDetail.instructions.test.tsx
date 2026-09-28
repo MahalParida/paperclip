@@ -445,7 +445,7 @@ describe("PromptsTab instruction editor", () => {
     expect(mockAgentsApi.instructionsFile).not.toHaveBeenCalledWith("agent-1", "notes.md", "company-1");
   });
 
-  it("opens an existing file instead of blanking it when a new file uses the same name", async () => {
+  it.each(["AGENTS.md", "./AGENTS.md", "/AGENTS.md", ".\\AGENTS.md", "agents.md", "./Agents.md"])("opens an existing file instead of blanking it when a new file is named %s", async (name) => {
     const summary = makeSummary("AGENTS.md", "AGENTS.md");
     await renderPromptsTab(
       makeBundle("AGENTS.md", [summary]),
@@ -460,7 +460,7 @@ describe("PromptsTab instruction editor", () => {
     expect(input).not.toBeNull();
 
     await act(async () => {
-      setNativeValue(input!, "AGENTS.md");
+      setNativeValue(input!, name);
       buttonByText(container, "Create").click();
     });
 
