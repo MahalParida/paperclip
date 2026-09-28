@@ -445,6 +445,33 @@ describe("PromptsTab instruction editor", () => {
     expect(mockAgentsApi.instructionsFile).not.toHaveBeenCalledWith("agent-1", "notes.md", "company-1");
   });
 
+  it("opens an existing file instead of blanking it when a new file uses the same name", async () => {
+    const summary = makeSummary("AGENTS.md", "AGENTS.md");
+    await renderPromptsTab(
+      makeBundle("AGENTS.md", [summary]),
+      { "AGENTS.md": makeDetail(summary, "# Current") },
+    );
+
+    await act(async () => {
+      buttonByText(container, "+").click();
+    });
+    await flushReact();
+    const input = container.querySelector<HTMLInputElement>('input[placeholder="TOOLS.md"]');
+    expect(input).not.toBeNull();
+
+    await act(async () => {
+      setNativeValue(input!, "AGENTS.md");
+      buttonByText(container, "Create").click();
+    });
+
+    await selectInstructionMode("Edit");
+    await waitFor(() => {
+      expect(markdownEditorRenderMock).toHaveBeenLastCalledWith(expect.objectContaining({ value: "# Current" }));
+    });
+    expect(saveAction).toBeNull();
+    expect(mockAgentsApi.saveInstructionsFile).not.toHaveBeenCalled();
+  });
+
   it("falls back to extension detection for existing .md files when metadata is missing", async () => {
     const summary = makeSummary("FALLBACK.md", "FALLBACK.md", {
       language: "text",

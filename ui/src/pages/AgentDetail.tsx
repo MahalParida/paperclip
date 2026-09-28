@@ -2785,9 +2785,11 @@ export function PromptsTab({
                   onClick={() => {
                     const candidate = newFilePath.trim();
                     if (!candidate || candidate.includes("..")) return;
-                    setPendingFiles((prev) => prev.includes(candidate) ? prev : [...prev, candidate]);
+                    if (!fileOptions.includes(candidate)) {
+                      setPendingFiles((prev) => prev.includes(candidate) ? prev : [...prev, candidate]);
+                      setDraft("");
+                    }
                     setSelectedFile(candidate);
-                    setDraft("");
                     setNewFilePath("");
                     setShowNewFileInput(false);
                   }}
