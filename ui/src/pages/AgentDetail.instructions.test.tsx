@@ -472,6 +472,29 @@ describe("PromptsTab instruction editor", () => {
     expect(mockAgentsApi.saveInstructionsFile).not.toHaveBeenCalled();
   });
 
+  it("opens the exact match when files differ only by case", async () => {
+    const upper = makeSummary("AGENTS.md", "AGENTS.md");
+    const lower = makeSummary("agents.md", "AGENTS.md");
+    await renderPromptsTab(
+      makeBundle("AGENTS.md", [upper, lower]),
+      { "AGENTS.md": makeDetail(upper, "# Upper"), "agents.md": makeDetail(lower, "# Lower") },
+    );
+
+    await act(async () => {
+      buttonByText(container, "+").click();
+    });
+    await flushReact();
+    await act(async () => {
+      setNativeValue(container.querySelector<HTMLInputElement>('input[placeholder="TOOLS.md"]')!, "agents.md");
+      buttonByText(container, "Create").click();
+    });
+
+    await selectInstructionMode("Edit");
+    await waitFor(() => {
+      expect(markdownEditorRenderMock).toHaveBeenLastCalledWith(expect.objectContaining({ value: "# Lower" }));
+    });
+  });
+
   it("falls back to extension detection for existing .md files when metadata is missing", async () => {
     const summary = makeSummary("FALLBACK.md", "FALLBACK.md", {
       language: "text",

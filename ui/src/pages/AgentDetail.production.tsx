@@ -2876,7 +2876,9 @@ export function PromptsTab({
                   onClick={() => {
                     const normalized = normalizeInstructionsFilePath(newFilePath);
                     if (!normalized || normalized.includes("..")) return;
-                    const candidate = fileOptions.find((path) => path.toLowerCase() === normalized.toLowerCase()) ?? normalized;
+                    const candidate = fileOptions.find((path) => path === normalized)
+                      ?? fileOptions.find((path) => path.toLowerCase() === normalized.toLowerCase())
+                      ?? normalized;
                     if (!fileOptions.includes(candidate)) {
                       setPendingFiles((prev) => prev.includes(candidate) ? prev : [...prev, candidate]);
                       setDraft("");
